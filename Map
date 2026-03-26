@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SecureTrack — Command</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;600;700&display=swap');
+  :root {
+    --bg:#0a0c0f; --surface:#111418; --border:#1e2530;
+    --accent:#00ff88; --accent2:#00cfff; --danger:#ff4444;
+    --text:#e2e8f0; --muted:#4a5568;
+    --mono:'Share Tech Mono',monospace; --sans:'Barlow',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+
+/* Top bar */
+.topbar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(–surface);border-bottom:1px solid var(–border);flex-shrink:0;z-index:1000;}
+.topbar-logo{display:flex;align-items:center;gap:8px;}
+.topbar-logo svg{width:24px;height:24px;}
+.topbar-logo span{font-family:var(–mono);font-size:13px;color:var(–accent);letter-spacing:3px;}
+.topbar-stats{display:flex;gap:16px;margin-left:auto;}
+.stat{display:flex;flex-direction:column;align-items:flex-end;}
+.stat-val{font-family:var(–mono);font-size:16px;color:var(–accent);}
+.stat-lbl{font-family:var(–mono);font-size:9px;color:var(–muted);letter-spacing:1px;text-transform:uppercase;}
+
+/* Login overlay */
+.login-overlay{position:fixed;inset:0;background:var(–bg);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;}
+.login-card{background:var(–surface);border:1px solid var(–border);border-radius:12px;padding:28px;width:100%;max-width:340px;position:relative;overflow:hidden;}
+.login-card::before{content:’’;position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(–accent),transparent);opacity:0.4;}
+.login-title{font-family:var(–mono);font-size:11px;color:var(–accent);letter-spacing:3px;text-transform:uppercase;margin-bottom:20px;}
+.field{margin-bottom:14px;}
+.field label{display:block;font-size:10px;color:var(–muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;font-family:var(–mono);}
+.field input{width:100%;background:var(–bg);border:1px solid var(–border);border-radius:8px;padding:13px 14px;color:var(–text);font-family:var(–mono);font-size:16px;outline:none;transition:border-color 0.2s;-webkit-appearance:none;}
+.field input:focus{border-color:var(–accent);}
+.btn{width:100%;padding:14px;border:none;border-radius:8px;font-family:var(–mono);font-size:12px;letter-spacing:2px;text-transform:uppercase;cursor:pointer;background:var(–accent);color:#000;font-weight:700;margin-top:6px;}
+.btn:active{transform:scale(0.98);}
+.error-msg{background:rgba(255,68,68,0.08);border:1px solid rgba(255,68,68,0.2);border-radius:8px;padding:10px;font-family:var(–mono);font-size:11px;color:var(–danger);margin-top:10px;display:none;}
+
+/* Main layout */
+.main{display:flex;flex:1;overflow:hidden;}
+
+/* Sidebar */
+.sidebar{width:220px;background:var(–surface);border-right:1px solid var(–border);display:flex;flex-direction:column;flex-shrink:0;overflow:hidden;}
+.sidebar-header{padding:12px 14px;border-bottom:1px solid var(–border);}
+.sidebar-header span{font-family:var(–mono);font-size:10px;color:var(–accent);letter-spacing:2px;text-transform:uppercase;}
+.unit-list{flex:1;overflow-y:auto;padding:8px;}
+.unit-item{display:flex;align-items:center;gap:10px;padding:10px 10px;border-radius:8px;cursor:pointer;transition:background 0.15s;margin-bottom:4px;}
+.unit-item:hover{background:var(–bg);}
+.unit-item.stale{opacity:0.45;}
+.unit-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.unit-info{flex:1;min-width:0;}
+.unit-name{font-family:var(–mono);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.unit-age{font-family:var(–mono);font-size:9px;color:var(–muted);}
+.unit-acc{font-family:var(–mono);font-size:9px;color:var(–muted);}
+.empty-state{padding:20px 14px;font-family:var(–mono);font-size:10px;color:var(–muted);line-height:1.8;text-align:center;}
+
+/* Map */
+#map{flex:1;background:#0d1117;}
+.leaflet-tile{filter:brightness(0.6) saturate(0.3);}
+.leaflet-control-zoom{border:1px solid var(–border)!important;background:var(–surface)!important;}
+.leaflet-control-zoom a{background:var(–surface)!important;color:var(–accent)!important;border-bottom:1px solid var(–border)!important;}
+
+/* Custom marker */
+.marker-label{background:var(–surface);border:1px solid var(–accent);border-radius:6px;padding:3px 8px;font-family:var(–mono);font-size:11px;color:var(–accent);white-space:nowrap;box-shadow:0 0 10px rgba(0,255,136,0.3);}
+.marker-label.stale{border-color:var(–muted);color:var(–muted);box-shadow:none;}
+
+/* Bottom bar */
+.bottombar{padding:6px 16px;background:var(–surface);border-top:1px solid var(–border);display:flex;align-items:center;gap:12px;flex-shrink:0;}
+.conn-indicator{display:flex;align-items:center;gap:6px;font-family:var(–mono);font-size:10px;color:var(–accent);}
+.conn-dot{width:6px;height:6px;background:var(–accent);border-radius:50%;animation:pa 2s infinite;}
+@keyframes pa{0%,100%{opacity:1}50%{opacity:0.4}}
+.bottombar-right{margin-left:auto;font-family:var(–mono);font-size:10px;color:var(–muted);}
+
+@media(max-width:600px){
+.sidebar{width:160px;}
+.topbar-logo span{font-size:11px;}
+}
+</style>
+
+</head>
+<body>
+
+<!-- Login -->
+
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <div class="login-title">Command Access</div>
+    <div class="field">
+      <label>Admin Password</label>
+      <input type="password" id="adminPwd" placeholder="Enter admin password" autocomplete="off"/>
+    </div>
+    <div class="field">
+      <label>Server URL</label>
+      <input type="url" id="adminServer" placeholder="https://your-server.com" autocomplete="off" autocorrect="off" autocapitalize="off"/>
+    </div>
+    <button class="btn" onclick="adminLogin()">▶ Open Command View</button>
+    <div class="error-msg" id="loginError"></div>
+  </div>
+</div>
+
+<!-- Top bar -->
+
+<div class="topbar">
+  <div class="topbar-logo">
+    <svg viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="9" r="4" fill="#00ff88" opacity="0.9"/>
+      <path d="M12 13 L8 21 Q12 18 16 21 Z" fill="#00ff88" opacity="0.9"/>
+      <circle cx="12" cy="9" r="1.5" fill="#0a0c0f"/>
+    </svg>
+    <span>SecureTrack</span>
+  </div>
+  <div class="topbar-stats">
+    <div class="stat">
+      <div class="stat-val" id="activeCount">0</div>
+      <div class="stat-lbl">Active</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val" id="totalCount">0</div>
+      <div class="stat-lbl">Total</div>
+    </div>
+  </div>
+</div>
+
+<div class="main">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header"><span>Units</span></div>
+    <div class="unit-list" id="unitList">
+      <div class="empty-state">No units<br>connected yet</div>
+    </div>
+  </div>
+
+  <!-- Map -->
+
+  <div id="map"></div>
+</div>
+
+<div class="bottombar">
+  <div class="conn-indicator">
+    <div class="conn-dot"></div>
+    <span id="lastUpdate">Waiting...</span>
+  </div>
+  <div class="bottombar-right" id="serverDisplay"></div>
+</div>
+
+<script>
+  const STALE_MS = 60000; // 60s = stale
+  const POLL_MS = 8000;   // poll every 8s
+  const COLORS = ['#00ff88','#00cfff','#ffcc00','#ff6b6b','#cc88ff','#ff9944','#44ffcc','#ff44aa'];
+
+  let map, markers={}, units={}, adminPassword='', serverUrl='', colorMap={}, colorIdx=0;
+
+  function getColor(name) {
+    if(!colorMap[name]) colorMap[name]=COLORS[colorIdx++ % COLORS.length];
+    return colorMap[name];
+  }
+
+  function timeAgo(ts) {
+    const s = Math.floor((Date.now()-ts)/1000);
+    if(s<10) return 'just now';
+    if(s<60) return s+'s ago';
+    if(s<3600) return Math.floor(s/60)+'m ago';
+    return Math.floor(s/3600)+'h ago';
+  }
+
+  function adminLogin() {
+    const pwd = document.getElementById('adminPwd').value.trim();
+    const srv = document.getElementById('adminServer').value.trim();
+    if(!pwd){showLoginError('Enter admin password.');return;}
+    if(!srv||!srv.startsWith('https://')){showLoginError('Server URL must start with https://');return;}
+    adminPassword=pwd; serverUrl=srv;
+    localStorage.setItem('st_admin',JSON.stringify({server:srv}));
+    document.getElementById('loginOverlay').style.display='none';
+    document.getElementById('serverDisplay').textContent=srv.replace('https://','');
+    initMap();
+    pollLocations();
+    setInterval(pollLocations, POLL_MS);
+    setInterval(refreshList, 5000);
+  }
+
+  function showLoginError(m){
+    const e=document.getElementById('loginError');
+    e.textContent=m; e.style.display='block';
+  }
+
+  function initMap() {
+    map = L.map('map',{zoomControl:true}).setView([51.5,0],6);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      attribution:'© OSM',maxZoom:19
+    }).addTo(map);
+  }
+
+  async function pollLocations() {
+    try {
+      const r = await fetch(serverUrl+'/locations',{
+        headers:{'X-Admin-Key': adminPassword}
+      });
+      if(r.status===401){document.getElementById('lastUpdate').textContent='Auth failed — check password';return;}
+      if(!r.ok) return;
+      const data = await r.json();
+      document.getElementById('lastUpdate').textContent='Updated '+new Date().toLocaleTimeString();
+      processLocations(data);
+    } catch(e){
+      document.getElementById('lastUpdate').textContent='Server unreachable';
+    }
+  }
+
+  function processLocations(data) {
+    // data = { "name": {lat, lon, acc, ts}, ... }
+    Object.entries(data).forEach(([name, loc])=>{
+      units[name]=loc;
+      const color=getColor(name);
+      const isStale=(Date.now()-loc.ts)>STALE_MS;
+      const latlng=[loc.lat,loc.lon];
+
+      if(markers[name]) {
+        markers[name].setLatLng(latlng);
+        markers[name].setIcon(makeIcon(name,color,isStale));
+      } else {
+        const m=L.marker(latlng,{icon:makeIcon(name,color,isStale)}).addTo(map);
+        m.bindPopup(`<b style="font-family:monospace;color:#00ff88">${name}</b><br><small>±${Math.round(loc.acc)}m accuracy</small>`);
+        markers[name]=m;
+      }
+    });
+
+    // Count
+    const now=Date.now();
+    const active=Object.values(units).filter(u=>(now-u.ts)<STALE_MS).length;
+    document.getElementById('activeCount').textContent=active;
+    document.getElementById('totalCount').textContent=Object.keys(units).length;
+    refreshList();
+  }
+
+  function makeIcon(name,color,stale) {
+    return L.divIcon({
+      className:'',
+      html:`<div class="marker-label${stale?' stale':''}" style="border-color:${stale?'#4a5568':color};color:${stale?'#4a5568':color}">● ${name}</div>`,
+      iconAnchor:[0,0]
+    });
+  }
+
+  function refreshList() {
+    const list=document.getElementById('unitList');
+    const sorted=Object.entries(units).sort((a,b)=>b[1].ts-a[1].ts);
+    if(!sorted.length){list.innerHTML='<div class="empty-state">No units<br>connected yet</div>';return;}
+    list.innerHTML=sorted.map(([name,loc])=>{
+      const color=getColor(name);
+      const stale=(Date.now()-loc.ts)>STALE_MS;
+      return `<div class="unit-item${stale?' stale':''}" onclick="flyTo('${name}')">
+        <div class="unit-dot" style="background:${stale?'#4a5568':color}"></div>
+        <div class="unit-info">
+          <div class="unit-name" style="color:${stale?'#4a5568':color}">${name}</div>
+          <div class="unit-age">${timeAgo(loc.ts)}</div>
+          <div class="unit-acc">±${Math.round(loc.acc||0)}m</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function flyTo(name) {
+    if(units[name]) map.flyTo([units[name].lat,units[name].lon],15,{duration:1.2});
+  }
+
+  // Restore server on load
+  window.onload=()=>{
+    const s=JSON.parse(localStorage.getItem('st_admin')||'{}');
+    if(s.server) document.getElementById('adminServer').value=s.server;
+  };
+</script>
+
+</body>
+</html>
