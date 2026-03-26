@@ -1,0 +1,129 @@
+const http = require(‘http’);
+const https = require(‘https’);
+const fs = require(‘fs’);
+const path = require(‘path’);
+const crypto = require(‘crypto’);
+
+// ─── CONFIG ───────────────────────────────────────────────
+const PORT = process.env.PORT || 3000;
+const ACCESS_CODE = process.env.ACCESS_CODE || ‘changeme123’;   // users need this
+const ADMIN_KEY   = process.env.ADMIN_KEY   || ‘adminchangeme’; // admin map needs this
+const STALE_MS    = 5 * 60 * 1000; // remove units after 5 min silence
+// ──────────────────────────────────────────────────────────
+
+// In-memory store — nothing written to disk
+const locations = {}; // { name: { lat, lon, acc, ts } }
+
+// Purge stale units every minute
+setInterval(() => {
+const now = Date.now();
+Object.keys(locations).forEach(k => {
+if (now - locations[k].ts > STALE_MS) delete locations[k];
+});
+}, 60000);
+
+function cors(res) {
+res.setHeader(‘Access-Control-Allow-Origin’, ‘*’);
+res.setHeader(‘Access-Control-Allow-Methods’, ‘GET, POST, OPTIONS’);
+res.setHeader(‘Access-Control-Allow-Headers’, ‘Content-Type, X-Admin-Key’);
+}
+
+function json(res, status, data) {
+cors(res);
+res.writeHead(status, { ‘Content-Type’: ‘application/json’ });
+res.end(JSON.stringify(data));
+}
+
+function serveFile(res, filePath, contentType) {
+try {
+const data = fs.readFileSync(filePath);
+cors(res);
+res.writeHead(200, { ‘Content-Type’: contentType });
+res.end(data);
+} catch(e) {
+json(res, 404, { error: ‘Not found’ });
+}
+}
+
+const server = http.createServer((req, res) => {
+const url = new URL(req.url, `http://localhost`);
+
+// Preflight
+if (req.method === ‘OPTIONS’) {
+cors(res); res.writeHead(204); res.end(); return;
+}
+
+// ── Serve tracker page for users
+if (req.method === ‘GET’ && url.pathname === ‘/’) {
+serveFile(res, path.join(__dirname, ‘tracker.html’), ‘text/html’); return;
+}
+
+// ── Serve admin map
+if (req.method === ‘GET’ && url.pathname === ‘/map’) {
+serveFile(res, path.join(__dirname, ‘map.html’), ‘text/html’); return;
+}
+
+// ── POST /location — user sends their GPS
+if (req.method === ‘POST’ && url.pathname === ‘/location’) {
+let body = ‘’;
+req.on(‘data’, d => { body += d; if(body.length > 1000) req.destroy(); });
+req.on(‘end’, () => {
+try {
+const data = JSON.parse(body);
+
+```
+    // Validate access code (constant-time compare)
+    const provided = Buffer.from(String(data.code || ''));
+    const expected  = Buffer.from(ACCESS_CODE);
+    const match = provided.length === expected.length &&
+      crypto.timingSafeEqual(provided, expected);
+
+    if (!match) { json(res, 401, { error: 'Invalid code' }); return; }
+
+    // Validate fields
+    const name = String(data.name || '').slice(0, 30).trim();
+    const lat  = parseFloat(data.lat);
+    const lon  = parseFloat(data.lon);
+    const acc  = parseFloat(data.acc) || 0;
+
+    if (!name || isNaN(lat) || isNaN(lon)) {
+      json(res, 400, { error: 'Invalid data' }); return;
+    }
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      json(res, 400, { error: 'Invalid coordinates' }); return;
+    }
+
+    locations[name] = { lat, lon, acc, ts: Date.now() };
+    json(res, 200, { ok: true });
+  } catch(e) {
+    json(res, 400, { error: 'Bad request' });
+  }
+});
+return;
+```
+
+}
+
+// ── GET /locations — admin fetches all dots
+if (req.method === ‘GET’ && url.pathname === ‘/locations’) {
+const adminKey = req.headers[‘x-admin-key’] || ‘’;
+const keyBuf  = Buffer.from(adminKey);
+const expBuf  = Buffer.from(ADMIN_KEY);
+const valid = keyBuf.length === expBuf.length &&
+crypto.timingSafeEqual(keyBuf, expBuf);
+if (!valid) { json(res, 401, { error: ‘Unauthorized’ }); return; }
+json(res, 200, locations);
+return;
+}
+
+json(res, 404, { error: ‘Not found’ });
+});
+
+server.listen(PORT, () => {
+console.log(`\n✅ SecureTrack server running on port ${PORT}`);
+console.log(`\n   User tracker:  http://localhost:${PORT}/`);
+console.log(`   Admin map:     http://localhost:${PORT}/map`);
+console.log(`\n   ACCESS_CODE:   ${ACCESS_CODE}`);
+console.log(`   ADMIN_KEY:     ${ADMIN_KEY}`);
+console.log(`\n⚠️  Change ACCESS_CODE and ADMIN_KEY via environment variables!\n`);
+});
